@@ -436,6 +436,32 @@ export function ContentProvider({ children }: { children: React.ReactNode }) {
                 }
               }
             )
+            .on(
+              "broadcast",
+              { event: "content_updated" },
+              (response: any) => {
+                const updates = response.payload;
+                if (updates && typeof updates === "object") {
+                  console.log("Received instant content broadcast updates:", updates);
+                  if (updates.hero !== undefined) setHeroConfig(updates.hero);
+                  if (updates.owner !== undefined) setOwner(updates.owner);
+                  if (updates.services !== undefined) setServices(updates.services);
+                  if (updates.websites !== undefined) setWebsites(updates.websites);
+                  if (updates.portfolio !== undefined) setPortfolio(updates.portfolio);
+                  if (updates.testimonials !== undefined) setTestimonials(updates.testimonials);
+                  if (updates.team !== undefined) setTeam(updates.team);
+                  if (updates.logoUrl !== undefined) setLogoUrl(updates.logoUrl);
+                  if (updates.headerBranding !== undefined) setHeaderBranding(updates.headerBranding);
+                  if (updates.noticeConfig !== undefined) setNoticeConfig(updates.noticeConfig);
+                  if (updates.offerConfig !== undefined) setOfferConfig(updates.offerConfig);
+                  if (updates.contactConfig !== undefined) setContactConfig(updates.contactConfig);
+                  if (updates.sectionHeadings !== undefined) setSectionHeadings(updates.sectionHeadings);
+                  if (updates.customPackagePlans !== undefined) setCustomPackagePlans(updates.customPackagePlans);
+                  if (updates.whyChooseUsStats !== undefined) setWhyChooseUsStats(updates.whyChooseUsStats);
+                  if (updates.whyChooseUsItems !== undefined) setWhyChooseUsItems(updates.whyChooseUsItems);
+                }
+              }
+            )
             .subscribe();
 
         } else {
@@ -667,6 +693,18 @@ export function ContentProvider({ children }: { children: React.ReactNode }) {
           }
         });
         await Promise.all(promises);
+
+        // Also broadcast the update signal directly over the websocket channel for ultra-responsive, zero-lag rendering
+        try {
+          await supabase.channel("avexon_content_realtime").send({
+            type: "broadcast",
+            event: "content_updated",
+            payload: updates
+          });
+          console.log("Broadcasted content edits across custom channel successfully:", updates);
+        } catch (be) {
+          console.warn("Realtime broadcast send failed:", be);
+        }
       }
     } catch (e) {
       console.warn("Could not save content state to server: ", e);

@@ -663,8 +663,6 @@ app.post("/api/reset-database", (req, res) => {
 // API to get all customer orders
 app.get("/api/orders", async (req, res) => {
   let ordersList: any[] = [];
-  let fetchedFromSupabase = false;
-
   try {
     const dbClient = getSupabaseOrdersClient();
     if (dbClient) {
@@ -707,21 +705,8 @@ app.get("/api/orders", async (req, res) => {
             // Case 4: Fallback
             return row.value || row;
           }).filter(Boolean);
-
-          // Sort orders chronologically (newest first)
-          ordersList.sort((a: any, b: any) => {
-            const dateA = a && a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const dateB = b && b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            if (isNaN(dateA) || isNaN(dateB) || dateA === dateB) {
-              const idA = a && a.id ? String(a.id) : "";
-              const idB = b && b.id ? String(b.id) : "";
-              return idB.localeCompare(idA);
-            }
-            return dateB - dateA;
-          });
-          fetchedFromSupabase = true;
         } else {
-          console.log("[Notice] Table select. Initializing legacy sync fallback mode...");
+          console.log("[Notice] Table select error. Initializing legacy sync fallback mode...");
           // Fallback to legacy avexon_content "orders" key row with strict 1500ms timeout
           const legacyPromise = dbClient.from("avexon_content").select("value").eq("key", "orders").single();
           const legacyResult = await Promise.race([
@@ -735,72 +720,72 @@ app.get("/api/orders", async (req, res) => {
 
           if (!legacyError && legacyData && Array.isArray(legacyData.value)) {
             ordersList = legacyData.value;
-            // Sort legacy orders chronologically (newest first)
-            ordersList.sort((a: any, b: any) => {
-              const dateA = a && a.createdAt ? new Date(a.createdAt).getTime() : 0;
-              const dateB = b && b.createdAt ? new Date(b.createdAt).getTime() : 0;
-              if (isNaN(dateA) || isNaN(dateB) || dateA === dateB) {
-                const idA = a && a.id ? String(a.id) : "";
-                const idB = b && b.id ? String(b.id) : "";
-                return idB.localeCompare(idA);
-              }
-              return dateB - dateA;
-            });
-            fetchedFromSupabase = true;
-            
             // Seed the flat orders table in background silently
             for (const order of ordersList) {
               if (order && order.id) {
-                (async () => {
-                  try {
-                    await dbClient.from("avexon_orders").upsert({ id: order.id, value: order });
-                  } catch (e) {
-                    // Suppress to keep stderr completely clean and error-free when database tables have not been fully provisioned yet
-                  }
-                })();
+                dbClient.from("avexon_orders").upsert({ id: order.id, value: order }).catch(() => {});
               }
             }
           }
         }
       } catch (err) {
-        console.log("[Notice] Storage query lookup transition.");
+        console.log("[Notice] Storage query lookup transition error:", err);
       }
     }
 
-    // Save backup copy locally if successfully fetched and merged
-    if (fetchedFromSupabase && Array.isArray(ordersList)) {
-      try {
-        fs.writeFileSync(ORDERS_DB_FILE, JSON.stringify(ordersList, null, 2), "utf-8");
-      } catch (fsErr) {
-        console.warn("Could not save backup copy of orders data to filesystem:", fsErr);
-      }
-      return res.json({ success: true, data: ordersList });
-    }
-
-    // Default fast local filesystem fallback if Supabase is offline or not configured or failed
+    // Load local file database to merge safely and protect local data
+    let localOrders: any[] = [];
     if (fs.existsSync(ORDERS_DB_FILE)) {
-      const fileData = fs.readFileSync(ORDERS_DB_FILE, "utf-8");
       try {
+        const fileData = fs.readFileSync(ORDERS_DB_FILE, "utf-8");
         const parsed = JSON.parse(fileData);
-        const list = Array.isArray(parsed) ? parsed : [];
-        list.sort((a: any, b: any) => {
-          const dateA = a && a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const dateB = b && b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          if (isNaN(dateA) || isNaN(dateB) || dateA === dateB) {
-            const idA = a && a.id ? String(a.id) : "";
-            const idB = b && b.id ? String(b.id) : "";
-            return idB.localeCompare(idA);
-          }
-          return dateB - dateA;
-        });
-        return res.json({ success: true, data: list });
+        if (Array.isArray(parsed)) {
+          localOrders = parsed;
+        }
       } catch (parseErr) {
-        console.error("Local file orders_db.json is corrupted:", parseErr);
-        return res.json({ success: true, data: [] });
+        console.warn("Local file orders_db.json read error:", parseErr);
       }
-    } else {
-      return res.json({ success: true, data: [] });
     }
+
+    // Merge logic: ensure local-only orders or new statuses are preserved
+    let mergedList = [...ordersList];
+    localOrders.forEach((lOrd: any) => {
+      if (lOrd && lOrd.id) {
+        const index = mergedList.findIndex((sOrd: any) => sOrd && sOrd.id === lOrd.id);
+        if (index === -1) {
+          // Keep local order that isn't on the cloud yet, and sync it to the cloud
+          mergedList.push(lOrd);
+          if (dbClient) {
+            dbClient.from("avexon_orders").upsert({ id: lOrd.id, value: lOrd }).catch(() => {});
+          }
+        } else {
+          // If statuses are different, merge properties preferring newer statuses
+          mergedList[index] = { ...lOrd, ...mergedList[index] };
+        }
+      }
+    });
+
+    // Sort chronologically (newest first)
+    mergedList.sort((a: any, b: any) => {
+      const dateA = a && a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b && b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (isNaN(dateA) || isNaN(dateB) || dateA === dateB) {
+        const idA = a && a.id ? String(a.id) : "";
+        const idB = b && b.id ? String(b.id) : "";
+        return idB.localeCompare(idA);
+      }
+      return dateB - dateA;
+    });
+
+    // Save final merged list copy locally to disk
+    try {
+      fs.writeFileSync(ORDERS_DB_FILE, JSON.stringify(mergedList, null, 2), "utf-8");
+    } catch (fsErr) {
+      console.warn("Could not save merged copy of orders data to filesystem:", fsErr);
+    }
+
+    return res.json({ success: true, data: mergedList });
+
   } catch (err: any) {
     console.error("Error reading orders database:", err);
     if (!res.headersSent) {

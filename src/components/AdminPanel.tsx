@@ -1398,6 +1398,64 @@ export default function AdminPanel({ isOpen, onClose, isStandalonePWA = false }:
             }
           }
         )
+        .on(
+          "broadcast",
+          { event: "order_created" },
+          (response: any) => {
+            const newOrder = response.payload;
+            if (newOrder && newOrder.id) {
+              console.log("Admin broadcast event order_created received:", newOrder);
+              setAllOrders(prev => {
+                const exists = prev.some(o => o.id === newOrder.id);
+                if (exists) return prev;
+                const updated = [newOrder, ...prev];
+                safeLocalStorage.setItem("avexon_admin_orders", JSON.stringify(updated));
+                lastOrderCount = updated.length;
+                triggerNewOrderFeedback(newOrder);
+                return updated;
+              });
+            }
+          }
+        )
+        .on(
+          "broadcast",
+          { event: "order_updated" },
+          (response: any) => {
+            const updatedOrder = response.payload;
+            if (updatedOrder && updatedOrder.id) {
+              console.log("Admin broadcast event order_updated received:", updatedOrder);
+              setAllOrders(prev => {
+                const index = prev.findIndex(o => o.id === updatedOrder.id);
+                let updated;
+                if (index !== -1) {
+                  updated = [...prev];
+                  updated[index] = updatedOrder;
+                } else {
+                  updated = [updatedOrder, ...prev];
+                }
+                safeLocalStorage.setItem("avexon_admin_orders", JSON.stringify(updated));
+                lastOrderCount = updated.length;
+                return updated;
+              });
+            }
+          }
+        )
+        .on(
+          "broadcast",
+          { event: "order_deleted" },
+          (response: any) => {
+            const deletedId = response.payload?.id;
+            if (deletedId) {
+              console.log("Admin broadcast event order_deleted received:", deletedId);
+              setAllOrders(prev => {
+                const updated = prev.filter(o => o.id !== deletedId);
+                safeLocalStorage.setItem("avexon_admin_orders", JSON.stringify(updated));
+                lastOrderCount = updated.length;
+                return updated;
+              });
+            }
+          }
+        )
         .subscribe();
     }
 
@@ -2037,6 +2095,18 @@ export default function AdminPanel({ isOpen, onClose, isStandalonePWA = false }:
         (async () => {
           try {
             await supabaseOrders.from("avexon_orders").upsert({ id: editingOrder.id, value: editingOrder });
+            
+            // Broadcast order_updated event across custom channel for immediate reload-free synchronization
+            try {
+              await supabaseOrders.channel("avexon_orders_realtime_admin").send({
+                type: "broadcast",
+                event: "order_updated",
+                payload: editingOrder
+              });
+              console.log("Broadcasted order_updated event successfully:", editingOrder.id);
+            } catch (be) {
+              console.warn("Could not broadcast order_updated:", be);
+            }
           } catch (err) {
             console.error("Direct Supabase flat order update failed:", err);
           }
@@ -2078,6 +2148,18 @@ export default function AdminPanel({ isOpen, onClose, isStandalonePWA = false }:
             (async () => {
               try {
                 await supabaseOrders.from("avexon_orders").delete().eq("id", orderId);
+                
+                // Broadcast order_deleted event across custom channel for immediate reload-free synchronization
+                try {
+                  await supabaseOrders.channel("avexon_orders_realtime_admin").send({
+                    type: "broadcast",
+                    event: "order_deleted",
+                    payload: { id: orderId }
+                  });
+                  console.log("Broadcasted order_deleted event successfully:", orderId);
+                } catch (be) {
+                  console.warn("Could not broadcast order_deleted:", be);
+                }
               } catch (err) {
                 console.error("Direct Supabase flat order delete failed:", err);
               }

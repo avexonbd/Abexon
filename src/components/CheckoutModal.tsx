@@ -540,6 +540,17 @@ export default function CheckoutModal({ isOpen, onClose, preselectedWebsiteTitle
           (async () => {
             try {
               await supabaseOrders.from("avexon_orders").upsert({ id: newOrder.id, value: newOrder });
+              // Broadcast order_created event across custom channel for immediate reload-free synchronization
+              try {
+                await supabaseOrders.channel("avexon_realtime_broadcast").send({
+                  type: "broadcast",
+                  event: "order_created",
+                  payload: newOrder
+                });
+                console.log("Broadcasted order_created across custom channel:", newOrder.id);
+              } catch (be) {
+                console.warn("Could not broadcast order_created:", be);
+              }
             } catch (err) {
               console.warn("Direct Supabase flat order upload failed:", err);
             }
@@ -643,6 +654,17 @@ export default function CheckoutModal({ isOpen, onClose, preselectedWebsiteTitle
         (async () => {
           try {
             await supabaseOrders.from("avexon_orders").upsert({ id: newOrder.id, value: newOrder });
+            // Broadcast order_created event across custom channel for immediate reload-free synchronization
+            try {
+              await supabaseOrders.channel("avexon_realtime_broadcast").send({
+                type: "broadcast",
+                event: "order_created",
+                payload: newOrder
+              });
+              console.log("Broadcasted order_created across custom channel:", newOrder.id);
+            } catch (be) {
+              console.warn("Could not broadcast order_created:", be);
+            }
           } catch (err) {
             console.warn("Direct Supabase flat order upload failed:", err);
           }

@@ -198,16 +198,12 @@ export default function App() {
     };
 
     const handleNewIncomingOrders = (ordersList: any[]) => {
-      // If the actual AdminPanel is open in standard/standalone, it already handles chimes and notifications perfectly,
-      // so we avoid double beeping completely.
-      if ((window as any).avexonAdminPanelActive) {
-        localLastCount = ordersList.length;
-        return;
-      }
-
       const merged = ordersList;
 
-      if (localLastCount !== -1 && merged.length > localLastCount) {
+      // Only chime if AdminPanel is NOT currently active and open, avoiding double chime alarms in standalone views
+      const shouldChime = !(window as any).avexonAdminPanelActive && localLastCount !== -1 && merged.length > localLastCount;
+
+      if (shouldChime) {
         const newlyCreated = merged[0]; // Newest order is unshifted at front
         triggerDoubleChime();
         triggerPushNotification(newlyCreated);
@@ -247,6 +243,14 @@ export default function App() {
             { event: "INSERT", schema: "public", table: "avexon_orders" },
             () => {
               // Retrieve full updated listing when order is inserted
+              checkOrdersLoop();
+            }
+          )
+          .on(
+            "broadcast",
+            { event: "order_created" },
+            (response: any) => {
+              console.log("Global channel broadcast order_created:", response.payload);
               checkOrdersLoop();
             }
           )
