@@ -15,6 +15,35 @@ const SERVER_START_TIME = new Date();
 // Enable large JSON body parsing to support passing the full current state
 app.use(express.json({ limit: "25mb" }));
 
+// Explicitly serve sw.js and manifest.json with correct MIME types to bypass any SPA redirection/proxy issue
+app.get("/sw.js", (req, res) => {
+  const possiblePaths = [
+    path.join(process.cwd(), "dist", "sw.js"),
+    path.join(process.cwd(), "public", "sw.js")
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      res.setHeader("Content-Type", "application/javascript");
+      return res.sendFile(p);
+    }
+  }
+  res.status(404).send("Service worker file sw.js not found.");
+});
+
+app.get("/manifest.json", (req, res) => {
+  const possiblePaths = [
+    path.join(process.cwd(), "dist", "manifest.json"),
+    path.join(process.cwd(), "public", "manifest.json")
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      res.setHeader("Content-Type", "application/json");
+      return res.sendFile(p);
+    }
+  }
+  res.status(404).send("Manifest file manifest.json not found.");
+});
+
 // Initialize Gemini Client server-side securely
 const apiKey = process.env.GEMINI_API_KEY;
 let ai: GoogleGenAI | null = null;
