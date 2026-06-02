@@ -474,14 +474,51 @@ app.get("/api/content", async (req, res) => {
           }
         });
 
-        // Sync with local file storage backup
+        // Sync with local file storage backup safely to prevent older/stale Supabase records overriding freshly-uploaded Base64 image strings
         try {
-          fs.writeFileSync(CONTENT_DB_FILE, JSON.stringify(dbMap, null, 2), "utf-8");
+          let mergedWithLocal = { ...dbMap };
+          if (fs.existsSync(CONTENT_DB_FILE)) {
+            try {
+              const localData = JSON.parse(fs.readFileSync(CONTENT_DB_FILE, "utf-8"));
+              Object.entries(localData).forEach(([key, val]) => {
+                if (typeof val === "string" && val.startsWith("data:") && (!dbMap[key] || !dbMap[key].startsWith("data:"))) {
+                  mergedWithLocal[key] = val;
+                } else if (Array.isArray(val) && Array.isArray(dbMap[key])) {
+                  mergedWithLocal[key] = val.map((localItem: any) => {
+                    if (localItem && typeof localItem === "object" && localItem.id) {
+                      const remoteItem = dbMap[key].find((r: any) => r && r.id === localItem.id);
+                      if (remoteItem) {
+                        const mergedItem = { ...remoteItem };
+                        Object.entries(localItem).forEach(([propK, propV]) => {
+                          if (typeof propV === "string" && propV.startsWith("data:") && (!remoteItem[propK] || !remoteItem[propK].startsWith("data:"))) {
+                            mergedItem[propK] = propV;
+                          }
+                        });
+                        return mergedItem;
+                      }
+                    }
+                    return localItem;
+                  });
+                } else if (val && typeof val === "object" && dbMap[key] && typeof dbMap[key] === "object") {
+                  const mergedObj = { ...dbMap[key] };
+                  Object.entries(val).forEach(([propK, propV]) => {
+                    if (typeof propV === "string" && propV.startsWith("data:") && (!dbMap[key][propK] || !dbMap[key][propK].startsWith("data:"))) {
+                      mergedObj[propK] = propV;
+                    }
+                  });
+                  mergedWithLocal[key] = mergedObj;
+                }
+              });
+            } catch (pErr) {
+              console.warn("Could not parse local data for merging safety checks:", pErr);
+            }
+          }
+          fs.writeFileSync(CONTENT_DB_FILE, JSON.stringify(mergedWithLocal, null, 2), "utf-8");
+          return res.json({ success: true, data: mergedWithLocal });
         } catch (fsErr) {
           console.warn("Could not save backup copy of content data to filesystem:", fsErr);
+          return res.json({ success: true, data: dbMap });
         }
-
-        return res.json({ success: true, data: dbMap });
       }
     }
 

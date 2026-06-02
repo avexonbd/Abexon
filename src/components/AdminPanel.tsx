@@ -111,7 +111,8 @@ function ImageUploadField({ label, value, onChange, placeholder }: ImageUploadFi
     if (!file) return;
     setIsCompressing(true);
     try {
-      const base64 = await compressImage(file, 800, 800, 0.7);
+      // Compress to very compact and optimized formats for quick rendering and flawless database syncing
+      const base64 = await compressImage(file, 600, 600, 0.65);
       onChange(base64);
     } catch (e) {
       console.error("Error compressing image", e);

@@ -356,6 +356,29 @@ export function ContentProvider({ children }: { children: React.ReactNode }) {
             if (dbMap.customPackagePlans) setCustomPackagePlans(dbMap.customPackagePlans);
             if (dbMap.whyChooseUsStats) setWhyChooseUsStats(dbMap.whyChooseUsStats);
             if (dbMap.whyChooseUsItems) setWhyChooseUsItems(dbMap.whyChooseUsItems);
+          } else if (error) {
+            console.warn("Supabase content query failed, falling back to local Express content JSON DB:", error);
+            const response = await fetch("/api/content");
+            const resJson = await response.json();
+            if (resJson.success && resJson.data) {
+              const d = resJson.data;
+              if (d.hero) setHeroConfig(d.hero);
+              if (d.owner) setOwner(d.owner);
+              if (d.services) setServices(d.services);
+              if (d.websites) setWebsites(d.websites);
+              if (d.portfolio) setPortfolio(d.portfolio);
+              if (d.testimonials) setTestimonials(d.testimonials);
+              if (d.team) setTeam(d.team);
+              if (d.logoUrl) setLogoUrl(d.logoUrl);
+              if (d.headerBranding) setHeaderBranding(d.headerBranding);
+              if (d.noticeConfig) setNoticeConfig(d.noticeConfig);
+              if (d.offerConfig) setOfferConfig(d.offerConfig);
+              if (d.contactConfig) setContactConfig(d.contactConfig);
+              if (d.sectionHeadings) setSectionHeadings(d.sectionHeadings);
+              if (d.customPackagePlans) setCustomPackagePlans(d.customPackagePlans);
+              if (d.whyChooseUsStats) setWhyChooseUsStats(d.whyChooseUsStats);
+              if (d.whyChooseUsItems) setWhyChooseUsItems(d.whyChooseUsItems);
+            }
           } else {
             // Seeding phase: Supabase table is empty, so let's push existing default and local state parameters
             const defaultsToSeed: Record<string, any> = {
@@ -635,7 +658,12 @@ export function ContentProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured && supabase) {
         const promises = Object.entries(updates).map(async ([key, value]) => {
           if (value !== undefined) {
-            await supabase.from("avexon_content").upsert({ key, value });
+            const { error } = await supabase.from("avexon_content").upsert({ key, value });
+            if (error) {
+              console.error(`Error saving content key "${key}" to Supabase:`, error);
+            } else {
+              console.log(`Saved content key "${key}" to Supabase successfully.`);
+            }
           }
         });
         await Promise.all(promises);
