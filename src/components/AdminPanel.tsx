@@ -1049,6 +1049,7 @@ export default function AdminPanel({ isOpen, onClose, isStandalonePWA = false }:
   const [ownerPicUrl, setOwnerPicUrl] = useState(owner.picUrl);
 
   // 1.7 Business Contact & Social Info
+  const [hasInitializedLocalFields, setHasInitializedLocalFields] = useState(false);
   const [officeAddress, setOfficeAddress] = useState(contactConfig?.officeAddress || "");
   const [helplineNumbers, setHelplineNumbers] = useState(contactConfig?.helplineNumbers || "");
   const [officialEmails, setOfficialEmails] = useState(contactConfig?.officialEmails || "");
@@ -1087,9 +1088,9 @@ export default function AdminPanel({ isOpen, onClose, isStandalonePWA = false }:
   const [contactTitle, setContactTitle] = useState("");
   const [contactSubtitle, setContactSubtitle] = useState("");
 
-  // Reload local lists when context values change
+  // Reload local lists once when panel opens to prevent background polling overwriting edits
   useEffect(() => {
-    if (isOpen || isStandalonePWA) {
+    if ((isOpen || isStandalonePWA) && !hasInitializedLocalFields) {
       setHeroTitle(hero.title);
       setHeroSubtitle(hero.subtitle);
       setHeroCta(hero.ctaText);
@@ -1111,42 +1112,6 @@ export default function AdminPanel({ isOpen, onClose, isStandalonePWA = false }:
       setOwnerRole(owner.role);
       setOwnerTitle(owner.title);
       setOwnerPicUrl(owner.picUrl);
-
-      // Load all incoming orders from tracking localDB/Server
-      const fetchOrders = async () => {
-        try {
-          const res = await fetch("/api/orders");
-          const json = await res.json();
-          if (json.success && Array.isArray(json.data)) {
-            const serverOrders: any[] = json.data;
-            const normalized = serverOrders.map(normalizeSupabaseOrder).filter(Boolean);
-            setAllOrders(normalized);
-            safeLocalStorage.setItem("avexon_admin_orders", JSON.stringify(normalized));
-          } else {
-            const stored = safeLocalStorage.getItem("avexon_admin_orders");
-            if (stored) {
-              try {
-                const parsed = JSON.parse(stored);
-                if (Array.isArray(parsed)) {
-                  setAllOrders(parsed.map(normalizeSupabaseOrder).filter(Boolean));
-                }
-              } catch (_) {}
-            }
-          }
-        } catch (err) {
-          console.warn("Failed to fetch server orders, using fallback: ", err);
-          const stored = safeLocalStorage.getItem("avexon_admin_orders");
-          if (stored) {
-            try {
-              const parsed = JSON.parse(stored);
-              if (Array.isArray(parsed)) {
-                setAllOrders(parsed.map(normalizeSupabaseOrder).filter(Boolean));
-              }
-            } catch (_) {}
-          }
-        }
-      };
-      fetchOrders();
 
       if (noticeConfig) {
         setNoticeShow(noticeConfig.show);
@@ -1204,8 +1169,56 @@ export default function AdminPanel({ isOpen, onClose, isStandalonePWA = false }:
       if (whyChooseUsItems) {
         setLocalWhyChooseUsItems(whyChooseUsItems);
       }
+      setHasInitializedLocalFields(true);
     }
-  }, [isOpen, isStandalonePWA, isAuthenticated, hero, services, websites, portfolio, testimonials, team, owner, headerBranding, noticeConfig, offerConfig, contactConfig, sectionHeadings, whyChooseUsStats, whyChooseUsItems]);
+  }, [isOpen, isStandalonePWA, hasInitializedLocalFields, hero, logoUrl, headerBranding, owner, noticeConfig, offerConfig, contactConfig, sectionHeadings, whyChooseUsStats, whyChooseUsItems]);
+
+  // Load all incoming orders from tracking localDB/Server on open
+  useEffect(() => {
+    if (isOpen || isStandalonePWA) {
+      const fetchOrders = async () => {
+        try {
+          const res = await fetch("/api/orders");
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data)) {
+            const serverOrders: any[] = json.data;
+            const normalized = serverOrders.map(normalizeSupabaseOrder).filter(Boolean);
+            setAllOrders(normalized);
+            safeLocalStorage.setItem("avexon_admin_orders", JSON.stringify(normalized));
+          } else {
+            const stored = safeLocalStorage.getItem("avexon_admin_orders");
+            if (stored) {
+              try {
+                const parsed = JSON.parse(stored);
+                if (Array.isArray(parsed)) {
+                  setAllOrders(parsed.map(normalizeSupabaseOrder).filter(Boolean));
+                }
+              } catch (_) {}
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to fetch server orders, using fallback: ", err);
+          const stored = safeLocalStorage.getItem("avexon_admin_orders");
+          if (stored) {
+            try {
+              const parsed = JSON.parse(stored);
+              if (Array.isArray(parsed)) {
+                setAllOrders(parsed.map(normalizeSupabaseOrder).filter(Boolean));
+              }
+            } catch (_) {}
+          }
+        }
+      };
+      fetchOrders();
+    }
+  }, [isOpen, isStandalonePWA]);
+
+  // Reset initialization flag when admin panel is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setHasInitializedLocalFields(false);
+    }
+  }, [isOpen]);
 
   // Prevent background scrolling and hide navbar when Admin Panel is open
   useEffect(() => {
